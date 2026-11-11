@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block content %}
+<form method="post" action="{{ url_for('search') }}" enctype="multipart/form-data" id="search-form" autocomplete="off">
+  <section class="card">
+    <h2>1. Config bundle source</h2>
+    <div class="tabs">
+      <label><input type="radio" name="mode" value="panorama" {% if form.mode != 'upload' %}checked{% endif %}> Download from Panorama</label>
+      <label><input type="radio" name="mode" value="upload" {% if form.mode == 'upload' %}checked{% endif %}> Upload existing .tgz</label>
+    </div>
+
+    <div class="mode-panel" data-mode="panorama">
+      <div class="grid">
+        <label>Panorama host / IP
+          <input type="text" name="host" value="{{ form.host }}" placeholder="panorama.example.com" spellcheck="false">
+        </label>
+        <label>Username
+          <input type="text" name="username" value="{{ form.username }}" autocomplete="off" spellcheck="false">
+        </label>
+        <label>Password
+          <input type="password" name="password" value="" autocomplete="new-password">
+        </label>
+      </div>
+      <label class="check"><input type="checkbox" name="verify_ssl" {% if form.verify_ssl %}checked{% endif %}> Verify SSL certificate (untick only for lab / self-signed certificates)</label>
+      <p class="hint">Credentials are used once to get an API key in memory. They are never saved, logged or shown.</p>
+    </div>
+
+    <div class="mode-panel" data-mode="upload">
+      <label>Config bundle (.tgz / .tar.gz / .tar)
+        <input type="file" name="bundle" accept=".tgz,.gz,.tar">
+      </label>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>2. Search</h2>
+    <label>Values to search for (one per line)
+      <textarea name="terms" rows="5" placeholder="10.1.1.10&#10;web-server-01&#10;allow-dns" spellcheck="false">{{ form.terms }}</textarea>
+    </label>
+    <div class="options">
+      <label>Context lines
+        <input type="number" name="context" min="0" max="{{ MAX_CONTEXT }}" value="{{ form.context }}">
+      </label>
+      <label class="check"><input type="checkbox" name="case_sensitive" {% if form.case_sensitive %}checked{% endif %}> Case sensitive</label>
+      <label class="check"><input type="checkbox" name="regex" {% if form.regex %}checked{% endif %}> Regular expression</label>
+    </div>
+  </section>
+
+  <button type="submit" class="primary" id="submit-btn">Search</button>
+  <span class="busy" id="busy" hidden>Working… downloading and searching a large bundle can take several minutes.</span>
+</form>
+{% endblock %}

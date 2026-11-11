@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Results – Panorama Config Bundle Search{% endblock %}
+{% block content %}
+<section class="card summary">
+  <div class="summary-head">
+    <h2>Results</h2>
+    <div class="actions">
+      <a class="button" href="{{ url_for('export', token=token, fmt='csv') }}">Export CSV</a>
+      <a class="button" href="{{ url_for('export', token=token, fmt='txt') }}">Export Text</a>
+      <a class="button secondary" href="{{ url_for('index') }}">New search</a>
+    </div>
+  </div>
+  <dl>
+    <dt>Source</dt><dd>{{ report.source }}</dd>
+    <dt>Search terms</dt><dd>{% for t in report.terms %}<code>{{ t }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</dd>
+    <dt>Options</dt><dd>{{ report.context }} context lines{% if report.regex %}, regex{% endif %}{% if report.case_sensitive %}, case sensitive{% endif %}</dd>
+    <dt>Summary</dt><dd>{{ report.total_matches }} matching line(s) in {{ report.files|length }} file(s) across {{ report.device_count }} device(s); {{ report.files_scanned }} file(s) scanned</dd>
+  </dl>
+  <p class="hint">Secret values (passwords, keys, hashes, SNMP communities) are redacted as <code>********</code>.</p>
+  {% if report.truncated %}
+    <div class="alert alert-error">Search stopped after {{ report.max_matches }} matches. Results are incomplete; narrow your search.</div>
+  {% endif %}
+</section>
+
+{% if not report.files %}
+  <section class="card"><p>No matches found.</p></section>
+{% else %}
+  <nav class="card toc">
+    <strong>Devices:</strong>
+    {% for device, files in report.by_device() %}
+      <a href="#dev-{{ loop.index }}">{{ device }} ({{ files|sum(attribute='match_count') }})</a>
+    {% endfor %}
+  </nav>
+  {% for device, files in report.by_device() %}
+    {% set dev_idx = loop.index %}
+    <details class="device card" id="dev-{{ dev_idx }}" open>
+      <summary><span class="device-name">{{ device }}</span> <span class="count">{{ files|sum(attribute='match_count') }} matching line(s)</span></summary>
+      {% for f in files %}
+        <div class="file">
+          <div class="file-head">
+            <span class="device-tag">{{ device }}</span>
+            <code>{{ f.path }}</code>
+            <span class="count">{{ f.match_count }}</span>
+            {% if f.reformatted %}<span class="note">XML reformatted for display</span>{% endif %}
+          </div>
+          {% for block in f.blocks %}
+            <table class="ctx">
+              {% for line in block.lines %}
+                <tr class="{{ 'hit' if line.is_match else '' }}">
+                  <td class="ln">{{ line.number }}</td>
+                  <td class="code"><pre>{{ highlight(line.text, matchers) if line.is_match else line.text }}</pre></td>
+                </tr>
+              {% endfor %}
+            </table>
+          {% endfor %}
+        </div>
+      {% endfor %}
+    </details>
+  {% endfor %}
+{% endif %}
+{% endblock %}
