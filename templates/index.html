@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% block content %}
+<form method="post" action="{{ url_for('search') }}" enctype="multipart/form-data" id="search-form" autocomplete="off">
+  <section class="card">
+    <h2>1. Configuration source</h2>
+    <div class="tabs">
+      <label><input type="radio" name="mode" value="panorama" {% if form.mode == 'panorama' %}checked{% endif %}> Panorama device list</label>
+      <label><input type="radio" name="mode" value="linux" {% if form.mode == 'linux' %}checked{% endif %}> Linux server (latest bundle)</label>
+      <label><input type="radio" name="mode" value="upload" {% if form.mode == 'upload' %}checked{% endif %}> Upload existing .tgz</label>
+    </div>
+
+    {# ------------------------------------------------ Panorama device list #}
+    <div class="mode-panel" data-mode="panorama">
+      <p class="hint">Gets the list of connected firewalls from Panorama, then pulls each firewall's running configuration.</p>
+      <div class="grid">
+        <label>Panorama host / IP
+          <input type="text" name="host" value="{{ form.host }}" placeholder="panorama.example.com" spellcheck="false">
+        </label>
+        <label>Panorama username
+          <input type="text" name="username" value="{{ form.username }}" autocomplete="off" spellcheck="false">
+        </label>
+        <label>Panorama password
+          <input type="password" name="password" value="" autocomplete="new-password">
+        </label>
+      </div>
+
+      <fieldset class="sub">
+        <legend>Firewall connectivity</legend>
+        <label class="check"><input type="radio" name="method" value="proxy" {% if form.method == 'proxy' %}checked{% endif %}> Proxy through Panorama (only Panorama needs to be reachable)</label>
+        <label class="check"><input type="radio" name="method" value="direct" {% if form.method == 'direct' %}checked{% endif %}> Direct to each firewall's management IP</label>
+        <div class="grid method-panel" data-method="direct">
+          <label>Firewall username
+            <input type="text" name="fw_username" value="{{ form.fw_username }}" autocomplete="off" spellcheck="false" placeholder="blank = Panorama credentials">
+          </label>
+          <label>Firewall password
+            <input type="password" name="fw_password" value="" autocomplete="new-password" placeholder="blank = Panorama credentials">
+          </label>
+        </div>
+      </fieldset>
+
+      <div class="grid">
+        <label>Device filter (optional, one per line; hostname or serial, * wildcards)
+          <textarea name="device_filter" rows="3" placeholder="fw-branch-*&#10;013201001111" spellcheck="false">{{ form.device_filter }}</textarea>
+        </label>
+        <div>
+          <label class="check"><input type="checkbox" name="include_panorama" {% if form.include_panorama %}checked{% endif %}> Include Panorama's own running configuration</label>
+          <label class="check"><input type="checkbox" name="verify_ssl" {% if form.verify_ssl %}checked{% endif %}> Verify SSL certificates (untick only for lab / self-signed)</label>
+        </div>
+      </div>
+      <p class="hint">Credentials are used only to get API keys held in memory. They are never saved, logged or shown.</p>
+    </div>
+
+    {# ------------------------------------------------------- Linux server #}
+    <div class="mode-panel" data-mode="linux">
+      <p class="hint">Connects over SSH and downloads the newest file matching the pattern from the folder where Panorama bundles are stored.</p>
+      <div class="grid">
+        <label>Server host / IP
+          <input type="text" name="ssh_host" value="{{ form.ssh_host }}" placeholder="backup01.example.com" spellcheck="false">
+        </label>
+        <label>SSH port
+          <input type="number" name="ssh_port" value="{{ form.ssh_port }}" min="1" max="65535">
+        </label>
+        <label>SSH username
+          <input type="text" name="ssh_username" value="{{ form.ssh_username }}" autocomplete="off" spellcheck="false">
+        </label>
+      </div>
+      <div class="grid">
+        <label>SSH password
+          <input type="password" name="ssh_password" value="" autocomplete="new-password" placeholder="blank = use key">
+        </label>
+        <label>Private key file (optional)
+          <input type="file" name="ssh_key">
+        </label>
+        <label>Key passphrase
+          <input type="password" name="ssh_key_passphrase" value="" autocomplete="new-password">
+        </label>
+      </div>
+      <p class="hint">If you leave both the password and key blank, this computer's SSH agent and ~/.ssh keys are used.</p>
+      <div class="grid">
+        <label>Bundle folder on server
+          <input type="text" name="remote_dir" value="{{ form.remote_dir }}" placeholder="/srv/panorama-backups" spellcheck="false">
+        </label>
+        <label>File pattern
+          <input type="text" name="remote_pattern" value="{{ form.remote_pattern }}" spellcheck="false">
+        </label>
+        <label>Transfer method
+          <select name="transfer">
+            <option value="auto" {% if form.transfer == 'auto' %}selected{% endif %}>Auto (SFTP, fall back to SCP)</option>
+            <option value="sftp" {% if form.transfer == 'sftp' %}selected{% endif %}>SFTP</option>
+            <option value="scp" {% if form.transfer == 'scp' %}selected{% endif %}>SCP</option>
+          </select>
+        </label>
+      </div>
+      <label class="check"><input type="checkbox" name="accept_unknown_host" {% if form.accept_unknown_host %}checked{% endif %}> Accept unknown host key (not in known_hosts). Use only on trusted networks.</label>
+    </div>
+
+    {# ------------------------------------------------------------- Upload #}
+    <div class="mode-panel" data-mode="upload">
+      <label>Config bundle (.tgz / .tar.gz / .tar)
+        <input type="file" name="bundle" accept=".tgz,.gz,.tar">
+      </label>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>2. Search</h2>
+    <label>Values to search for (one per line)
+      <textarea name="terms" rows="5" placeholder="10.1.1.10&#10;web-server-01&#10;allow-dns" spellcheck="false">{{ form.terms }}</textarea>
+    </label>
+    <div class="options">
+      <label>Context lines
+        <input type="number" name="context" min="0" max="{{ MAX_CONTEXT }}" value="{{ form.context }}">
+      </label>
+      <label class="check"><input type="checkbox" name="case_sensitive" {% if form.case_sensitive %}checked{% endif %}> Case sensitive</label>
+      <label class="check"><input type="checkbox" name="regex" {% if form.regex %}checked{% endif %}> Regular expression</label>
+    </div>
+  </section>
+
+  <button type="submit" class="primary" id="submit-btn">Search</button>
+  <span class="busy" id="busy" hidden>Working… collecting configurations from many devices can take several minutes.</span>
+</form>
+{% endblock %}
