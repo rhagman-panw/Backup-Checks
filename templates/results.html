@@ -17,6 +17,12 @@
     <dt>Summary</dt><dd>{{ report.total_matches }} matching line(s) in {{ report.files|length }} file(s) across {{ report.device_count }} device(s); {{ report.files_scanned }} file(s) scanned</dd>
   </dl>
   <p class="hint">Secret values (passwords, keys, hashes, SNMP communities) are redacted as <code>********</code>.</p>
+  {% if report.errors %}
+    <details class="alert alert-error" open>
+      <summary>{{ report.errors|length }} device(s) could not be collected</summary>
+      <ul>{% for e in report.errors %}<li>{{ e }}</li>{% endfor %}</ul>
+    </details>
+  {% endif %}
   {% if report.truncated %}
     <div class="alert alert-error">Search stopped after {{ report.max_matches }} matches. Results are incomplete; narrow your search.</div>
   {% endif %}

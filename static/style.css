@@ -10,7 +10,11 @@ body { margin: 0; font-family: Segoe UI, system-ui, sans-serif; background: var(
 .card { background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: 16px 20px; margin-bottom: 16px; }
 h2 { margin: 0 0 12px; font-size: 1.1rem; }
 label { display: block; font-size: .9rem; color: var(--muted); margin-bottom: 10px; }
-input[type=text], input[type=password], input[type=number], textarea, input[type=file] {
+fieldset.sub { border: 1px solid var(--border); border-radius: 4px; margin: 6px 0 12px; padding: 8px 12px; }
+fieldset.sub legend { color: var(--muted); font-size: .9rem; padding: 0 4px; }
+.alert ul { margin: 6px 0 0; padding-left: 20px; }
+.alert summary { cursor: pointer; font-weight: 600; }
+input[type=text], input[type=password], input[type=number], textarea, input[type=file], select {
   display: block; width: 100%; margin-top: 4px; padding: 7px 9px; border: 1px solid var(--border);
   border-radius: 4px; font: inherit; color: var(--text); background: #fff;
 }

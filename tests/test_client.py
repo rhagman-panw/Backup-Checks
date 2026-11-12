@@ -1,11 +1,7 @@
-from pathlib import Path
-
 import pytest
 import requests
 
-from bundlesearch.client import EXPORT_CATEGORY, PanoramaClient, PanoramaError, normalize_host
-
-from .conftest import FW1_XML, make_tar
+from bundlesearch.client import Device, PanoramaClient, PanoramaError, normalize_host
 
 
 class FakeResponse:
@@ -13,23 +9,12 @@ class FakeResponse:
         self.content = content
         self.status_code = status
 
-    def iter_content(self, chunk_size=1):
-        for i in range(0, len(self.content), chunk_size):
-            yield self.content[i : i + chunk_size]
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *a):
-        return False
-
 
 class FakeSession:
-    def __init__(self, post=None, get=None, exc=None):
+    def __init__(self, post=None, exc=None):
         self.verify = True
         self.posts: list[dict] = []
-        self.gets: list[dict] = []
-        self._post, self._get, self._exc = post or [], get, exc
+        self._post, self._exc = list(post or []), exc
 
     def post(self, url, data=None, headers=None, timeout=None):
         self.posts.append({"url": url, "data": data, "headers": headers})
@@ -37,17 +22,35 @@ class FakeSession:
             raise self._exc
         return self._post.pop(0)
 
-    def get(self, url, params=None, headers=None, stream=False, timeout=None):
-        self.gets.append({"url": url, "params": params, "headers": headers})
-        return self._get
-
 
 KEYGEN_OK = b"<response status='success'><result><key>APIKEY123</key></result></response>"
+CONNECTED = (
+    b"<response status='success'><result><devices>"
+    b"<entry name='111'><serial>111</serial><hostname>fw-a</hostname>"
+    b"<ip-address>192.0.2.1</ip-address><model>PA-440</model></entry>"
+    b"<entry name='222'><serial>222</serial><hostname>fw-b</hostname>"
+    b"<ipv6-address>2001:db8::2</ipv6-address></entry>"
+    b"</devices></result></response>"
+)
+CONFIG = (
+    b"<response status='success'><result total='1' count='1'>"
+    b"<config version='10.2.0'><devices><entry name='localhost.localdomain'>"
+    b"<deviceconfig><system><hostname>fw-a</hostname></system></deviceconfig>"
+    b"</entry></devices></config></result></response>"
+)
+
+
+def logged_in(*responses):
+    s = FakeSession(post=[FakeResponse(KEYGEN_OK), *responses])
+    c = PanoramaClient("pano", session=s)
+    c.login("admin", "pw")
+    return c, s
 
 
 def test_normalize_host():
     assert normalize_host("https://pano.example.com/") == "pano.example.com"
     assert normalize_host("10.0.0.1:8443") == "10.0.0.1:8443"
+    assert normalize_host("[2001:db8::2]") == "[2001:db8::2]"
     with pytest.raises(PanoramaError):
         normalize_host("bad host;rm")
 
@@ -59,65 +62,70 @@ def test_login_uses_post_body_not_url():
     call = s.posts[0]
     assert call["url"] == "https://pano/api/"
     assert call["data"]["password"] == "pw!"
-    assert "pw!" not in call["url"]
+    assert call["headers"] is None
 
 
 def test_login_error_does_not_leak_password():
     body = b"<response status='error'><result><msg>Invalid credential pw-secret</msg></result></response>"
-    s = FakeSession(post=[FakeResponse(body, 403)])
-    c = PanoramaClient("pano", session=s)
+    c = PanoramaClient("pano", session=FakeSession(post=[FakeResponse(body, 403)]))
     with pytest.raises(PanoramaError) as ei:
         c.login("admin", "pw-secret")
     assert "pw-secret" not in str(ei.value)
-    assert "Login failed" in str(ei.value)
+    assert "Login to Panorama failed" in str(ei.value)
 
 
-def test_connection_error_message():
-    s = FakeSession(exc=requests.exceptions.SSLError("x"))
-    c = PanoramaClient("pano", session=s)
-    with pytest.raises(PanoramaError, match="SSL"):
+def test_connection_error_message_uses_label():
+    c = PanoramaClient("192.0.2.1", session=FakeSession(exc=requests.exceptions.SSLError("x")), label="fw-a")
+    with pytest.raises(PanoramaError, match="SSL.*fw-a"):
         c.login("a", "b")
 
 
-def test_device_map():
-    devices = (
-        b"<response status='success'><result><devices>"
-        b"<entry name='111'><serial>111</serial><hostname>fw-a</hostname></entry>"
-        b"<entry name='222'><serial>222</serial><hostname>fw-b</hostname></entry>"
-        b"</devices></result></response>"
-    )
-    s = FakeSession(post=[FakeResponse(KEYGEN_OK), FakeResponse(devices)])
-    c = PanoramaClient("pano", session=s)
-    c.login("a", "b")
-    assert c.get_device_map() == {"111": "fw-a", "222": "fw-b"}
+def test_connected_devices():
+    c, s = logged_in(FakeResponse(CONNECTED))
+    devices = c.get_connected_devices()
+    assert devices == [
+        Device("111", "fw-a", "192.0.2.1", "", "PA-440"),
+        Device("222", "fw-b", "", "2001:db8::2", ""),
+    ]
+    assert devices[1].mgmt_address == "[2001:db8::2]"
+    assert "<connected/>" in s.posts[1]["data"]["cmd"]
     assert s.posts[1]["headers"] == {"X-PAN-KEY": "APIKEY123"}
 
 
-def test_export_bundle_streams_to_file(tmp_path: Path):
-    tgz = make_tar(tmp_path / "src.tgz", {"running-config.xml": FW1_XML.encode()}).read_bytes()
-    s = FakeSession(post=[FakeResponse(KEYGEN_OK)], get=FakeResponse(tgz))
-    c = PanoramaClient("pano", session=s)
-    c.login("a", "b")
-    dest = tmp_path / "out.tgz"
-    assert c.export_bundle(dest, chunk_size=64) == len(tgz)
-    assert dest.read_bytes() == tgz
-    assert s.gets[0]["params"] == {"type": "export", "category": EXPORT_CATEGORY}
-    assert "key" not in s.gets[0]["params"]
-    assert s.gets[0]["headers"] == {"X-PAN-KEY": "APIKEY123"}
+def test_running_config_proxied_with_target():
+    c, s = logged_in(FakeResponse(CONFIG))
+    xml = c.get_running_config(target="111")
+    assert xml.startswith(b"<?xml")
+    assert b"<hostname>fw-a</hostname>" in xml
+    assert b"\n" in xml.strip()  # pretty-printed
+    data = s.posts[1]["data"]
+    assert data == {"type": "config", "action": "show", "xpath": "/config", "target": "111"}
+    assert "key" not in data
 
 
-def test_export_bundle_error_response(tmp_path: Path):
-    err = b"<response status='error'><msg><line>export failed APIKEY123</line></msg></response>"
-    s = FakeSession(post=[FakeResponse(KEYGEN_OK)], get=FakeResponse(err))
-    c = PanoramaClient("pano", session=s)
-    c.login("a", "b")
+def test_running_config_local_has_no_target():
+    c, s = logged_in(FakeResponse(CONFIG))
+    c.get_running_config()
+    assert "target" not in s.posts[1]["data"]
+
+
+def test_running_config_error_scrubs_key():
+    err = b"<response status='error'><msg><line>device 111 not connected APIKEY123</line></msg></response>"
+    c, _ = logged_in(FakeResponse(err))
     with pytest.raises(PanoramaError) as ei:
-        c.export_bundle(tmp_path / "out.tgz")
-    assert "export failed" in str(ei.value)
+        c.get_running_config(target="111")
+    assert "not connected" in str(ei.value)
     assert "APIKEY123" not in str(ei.value)
 
 
-def test_requires_login(tmp_path: Path):
+def test_clone_shares_key_not_session():
+    c, s = logged_in()
+    other = c.clone()
+    assert other._api_key == "APIKEY123"
+    assert other.session is not c.session
+
+
+def test_requires_login():
     c = PanoramaClient("pano", session=FakeSession())
-    with pytest.raises(PanoramaError):
-        c.export_bundle(tmp_path / "x.tgz")
+    with pytest.raises(PanoramaError, match="Not logged in"):
+        c.get_connected_devices()

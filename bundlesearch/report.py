@@ -42,6 +42,7 @@ class Report:
     files_scanned: int = 0
     truncated: bool = False
     max_matches: int = DEFAULT_MAX_MATCHES
+    errors: list[str] = field(default_factory=list)  # collection problems (per device)
     created: datetime = field(default_factory=datetime.now)
 
     @property
@@ -159,6 +160,9 @@ def to_text(report: Report) -> str:
     ]
     if report.truncated:
         out.append(f"WARNING: search stopped after {report.max_matches} matches; results incomplete.")
+    if report.errors:
+        out.append(f"Collection errors ({len(report.errors)}):")
+        out.extend(f"  - {e}" for e in report.errors)
     out.append("")
     if not report.files:
         out.append("No matches found.")

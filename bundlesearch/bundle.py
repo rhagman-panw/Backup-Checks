@@ -153,8 +153,12 @@ def resolve_device_name(
     hostname, is_panorama = config_identity(data)
     if is_panorama:
         return f"Panorama ({hostname})" if hostname else "Panorama"
-    m = SERIAL_RE.search(rel_path)
-    serial = m.group(1) if m else None
+    serial = None
+    if serial_map:
+        serial = next((p for p in PurePosixPath(rel_path).parts if p in serial_map), None)
+    if serial is None:
+        m = SERIAL_RE.search(rel_path)
+        serial = m.group(1) if m else None
     if serial and serial_map and serial_map.get(serial):
         return f"{serial_map[serial]} [{serial}]"
     if hostname:
